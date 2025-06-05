@@ -322,12 +322,85 @@ class EnhancedMathTrainerUI:
         self._save_leaderboard()
 
     def _show_leaderboard_ui(self):
-        if not self.leaderboard_data:
-            messagebox.showinfo("排行榜", "排行榜为空！")
-            return
+        # 创建一个自定义的排行榜窗口，而不是使用messagebox
+        leaderboard_window = tk.Toplevel(self.window)
+        leaderboard_window.title("排行榜 - 前三名")
+        leaderboard_window.geometry("350x250")
+        leaderboard_window.resizable(False, False)
+        leaderboard_window.configure(bg="#F0F4C3")  # 淡黄色背景
 
-        top_scores_str = "\n".join([f"第 {i+1} 名: {s}分" for i, s in enumerate(self.leaderboard_data)])
-        messagebox.showinfo("排行榜 - 前三名", f"最高分记录:\n\n{top_scores_str}")
+        # 窗口设置为模态，必须关闭此窗口才能操作主窗口
+        leaderboard_window.transient(self.window)
+        leaderboard_window.grab_set()
+
+        # 标题标签
+        title_label = ttk.Label(
+            leaderboard_window,
+            text="🏆 最高分记录 🏆",
+            style="Leaderboard.TLabel",
+            anchor=tk.CENTER
+        )
+        title_label.pack(pady=(20, 10), fill=tk.X)
+
+        # 排行榜内容
+        content_frame = ttk.Frame(leaderboard_window, style="TFrame")
+        content_frame.pack(pady=10, fill=tk.BOTH, expand=True)
+        content_frame.configure(style="TFrame")
+
+        if not self.leaderboard_data:
+            ttk.Label(
+                content_frame,
+                text="排行榜为空！\n开始挑战以创造记录吧！",
+                style="Leaderboard.TLabel",
+                anchor=tk.CENTER
+            ).pack(pady=20, fill=tk.X)
+        else:
+            for i, score in enumerate(self.leaderboard_data):
+                # 使用不同的颜色和图标来突出显示不同的排名
+                if i == 0:
+                    prefix = "🥇"  # 金牌
+                    frame_bg = "#FFD700"  # 金色
+                elif i == 1:
+                    prefix = "🥈"  # 银牌
+                    frame_bg = "#C0C0C0"  # 银色
+                elif i == 2:
+                    prefix = "🥉"  # 铜牌
+                    frame_bg = "#CD7F32"  # 铜色
+                else:
+                    prefix = "🎖️"  # 普通奖牌
+                    frame_bg = "#F0F4C3"  # 淡黄色
+
+                rank_frame = tk.Frame(content_frame, bg=frame_bg, bd=1, relief=tk.RAISED)
+                rank_frame.pack(fill=tk.X, padx=20, pady=5)
+
+                rank_label = tk.Label(
+                    rank_frame,
+                    text=f"{prefix} 第 {i+1} 名: {score}分",
+                    font=("Segoe UI", 14, "bold"),
+                    bg=frame_bg,
+                    fg="#33691E"  # 深绿色文字
+                )
+                rank_label.pack(pady=8, padx=5)
+
+        # 关闭按钮
+        close_button = ttk.Button(
+            leaderboard_window,
+            text="关闭",
+            command=leaderboard_window.destroy,
+            style="Primary.TButton"
+        )
+        close_button.pack(pady=(5, 20))
+
+        # 设置窗口在屏幕中央
+        leaderboard_window.update_idletasks()
+        width = leaderboard_window.winfo_width()
+        height = leaderboard_window.winfo_height()
+        x = (leaderboard_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (leaderboard_window.winfo_screenheight() // 2) - (height // 2)
+        leaderboard_window.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+
+        # 等待此窗口关闭
+        leaderboard_window.wait_window()
 
     def _clear_feedback(self):
         if self.question_active:
