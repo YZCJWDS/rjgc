@@ -1,126 +1,374 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import random
 import os
+import json  # Added for leaderboard
 
-class MathTrainerUI:
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("[警告] Pillow library not found. Images will not be loaded.")
+
+class EnhancedMathTrainerUI:
     def __init__(self, controller):
         self.controller = controller
         self.window = tk.Tk()
-        self.window.title("小学生速算练习")
-        self.window.geometry("800x600")
+        self.window.title("小学生速算乐园 🎉") # More engaging title
+        self.window.geometry("800x650") # Slightly taller for more space
         self.window.resizable(False, False)
 
-        # 设置背景色
-        self.bg_color = "#F0F4F8"  # 浅灰蓝色背景
-
-        # 初始化主题颜色
-        self.primary_color = "#4A90E2"
-        self.accent_color = "#FF6B6B"
-
-        self._load_background_image()
-        print("[调试信息] 开始初始化UI组件...")
-        self._setup_styles()
-        print("[调试信息] 样式配置完成")
-        self._setup_ui()
-        print("[调试信息] UI布局初始化完成")
+        # --- Color Palette ---
+        self.bg_color = "#E0F7FA"  # Light Cyan - Softer background
+        self.primary_color = "#00796B"  # Teal - For primary actions and accents
+        self.accent_color = "#FF8A65"  # Deep Orange - For secondary actions/emphasis
+        self.text_color = "#263238"    # Blue Grey - For general text
+        self.correct_color = "#4CAF50" # Green - For correct answers
+        self.error_color = "#F44336"   # Red - For errors/incorrect answers
+        self.input_bg_color = "#FFFFFF" # White for input field
 
         self.current_answer = None
-        self._create_animation()
+        self.question_active = False # To track if a question is currently displayed
+        self.selected_difficulty = tk.StringVar(value="中等") # Default difficulty
 
-    def _load_background_image(self):
-        try:
-            from PIL import Image, ImageTk
-            # 创建画布
-            self.bg_canvas = tk.Canvas(self.window, highlightthickness=0)
-            self.bg_canvas.place(x=0, y=0, relwidth=1, relheight=1)
+        self.score = 0
+        self.lives = 3
+        self.leaderboard_file = os.path.join(os.path.dirname(__file__), '..', 'config', 'leaderboard.json')
+        self.leaderboard_data = self._load_leaderboard()
 
-            # 加载背景图片
-            bg_path = os.path.join(os.path.dirname(__file__), 'images', 'background.png')
-            print(f"[调试信息] 加载背景图片: {bg_path}")
-            
-            pil_image = Image.open(bg_path)
-            self.background_image = ImageTk.PhotoImage(pil_image.resize((800, 600), Image.Resampling.LANCZOS))
-            self.bg_canvas.create_image(0, 0, image=self.background_image, anchor='nw')
-            
-        except Exception as e:
-            print(f"背景图加载失败: {str(e)}")
-            self.bg_canvas = tk.Canvas(self.window, bg=self.bg_color)
-            self.bg_canvas.place(x=0, y=0, relwidth=1, relheight=1)
+        self._load_assets()
+        self._setup_styles()
+        self._create_main_layout()
+        self._create_header()
+        self._create_question_area()
+        self._create_input_area()
+        self._create_feedback_area()
+        # self._create_star_animation_canvas() # Keep the star animation # 去掉星星动画
 
-    def _create_animation(self):
-        self.canvas = tk.Canvas(self.window, width=800, height=100, bg=self.bg_color, highlightthickness=0)
-        self.canvas.place(y=500)
+        print("[调试信息] UI初始化完成")
+        self.show_initial_message()
 
-        self.stars = []
-        for _ in range(20):
-            x = random.randint(0, 800)
-            y = random.randint(0, 100)
-            size = random.randint(2, 4)
-            self.stars.append({
-                'id': self.canvas.create_oval(x, y, x + size, y + size, fill=self.primary_color, outline=""),
-                'speed': random.uniform(0.5, 1.5)
-            })
+    def _load_assets(self):
+        self.images = {}
+        if not PIL_AVAILABLE:
+            messagebox.showwarning("Pillow缺失", "Python Pillow库未安装，无法加载图片资源。程序将不显示图片。")
+            return
 
-        self._animate_stars()
+        # 配置PIL日志级别以抑制libpng警告
+        import logging
+        pil_logger = logging.getLogger('PIL')
+        pil_logger.setLevel(logging.WARNING)
 
-    def _animate_stars(self):
-        for star in self.stars:
-            self.canvas.move(star['id'], -star['speed'], 0)
-            coords = self.canvas.coords(star['id'])
-            if coords[0] < -5:
-                self.canvas.coords(star['id'], 800, coords[1], 800 + coords[2] - coords[0], coords[3])
-        self.window.after(50, self._animate_stars)
+        # 修改图片文件名以匹配实际文件
+        # Paths are relative to the 'images' subdirectory
+        image_files = {
+            "background": "background.png", # 修改为实际存在的文件名
+            "start_button": "btn_start.png",    # 修改为实际存在的文件名
+            "submit_button": "btn_submit.png",  # 修改为实际存在的文件名
+            "correct_icon": "btn_start.png",   # 临时使用已有图片
+            "incorrect_icon": "btn_submit.png"    # 临时使用已有图片
+        }
+        base_path = os.path.join(os.path.dirname(__file__), 'images')
 
-    def show_feedback(self, is_correct):
-        if is_correct:
-            self.feedback_label.config(text="正确！", foreground="green")
-            self._play_correct_animation()
+        for name, filename in image_files.items():
+            path = os.path.join(base_path, filename)
+            try:
+                if name == "background":
+                    img = Image.open(path)
+                    self.images[name] = ImageTk.PhotoImage(img.resize((800, 650), Image.Resampling.LANCZOS))
+                else: # Icons
+                    img = Image.open(path)
+                    # Standard icon size, adjust as needed
+                    icon_size = (40, 40) if "button" in name else (50, 50)
+                    self.images[name] = ImageTk.PhotoImage(img.resize(icon_size, Image.Resampling.LANCZOS))
+                print(f"[调试信息] 成功加载图片: {name} from {path}")
+            except Exception as e:
+                print(f"[错误] 加载图片失败 '{name}': {e}")
+                self.images[name] = None # Explicitly set to None if loading fails
+
+    def _setup_styles(self):
+        style = ttk.Style()
+        style.theme_use('clam') # clam is a good base for custom styling
+
+        # --- General Styles ---
+        style.configure(".",
+                        background=self.bg_color,
+                        foreground=self.text_color,
+                        font=("Segoe UI", 12)) # Using a more modern font
+        style.configure("TFrame", background=self.bg_color)
+        style.configure("TLabel", background=self.bg_color, foreground=self.text_color)
+
+        # --- Button Styles ---
+        # Base button style
+        style.configure("App.TButton",
+                        font=("Segoe UI", 14, "bold"),
+                        padding=(10, 8), # Horizontal, vertical padding
+                        borderwidth=0,
+                        relief=tk.FLAT, # Flat modern look
+                        foreground="white")
+        style.map("App.TButton",
+                  background=[("active", self.primary_color), # Keep consistent on active
+                              ("disabled", "#BDBDBD")], # Grey out when disabled
+                  relief=[("pressed", tk.SUNKEN), ("!pressed", tk.FLAT)])
+
+        style.configure("Primary.TButton", background=self.primary_color)
+        style.map("Primary.TButton",
+                  background=[("active", "#005A4B"), # Darker shade on hover/active
+                              ("disabled", "#BDBDBD")])
+
+        style.configure("Accent.TButton", background=self.accent_color)
+        style.map("Accent.TButton",
+                  background=[("active", "#E67E22"), # Darker shade for accent
+                              ("disabled", "#BDBDBD")])
+
+        # --- Label Styles ---
+        style.configure("Header.TLabel",
+                        font=("Comic Sans MS", 28, "bold"), # Fun font for kids
+                        foreground=self.primary_color)
+        style.configure("Question.TLabel",
+                        font=("Segoe UI", 38, "bold"), # Larger font for question
+                        foreground=self.text_color)
+        style.configure("Feedback.TLabel",
+                        font=("Segoe UI", 16),
+                        padding=10)
+        style.configure("Correct.Feedback.TLabel", foreground=self.correct_color)
+        style.configure("Error.Feedback.TLabel", foreground=self.error_color)
+
+        # --- Entry Style ---
+        style.configure("TEntry",
+                        font=("Segoe UI", 24),
+                        padding=10,
+                        relief=tk.SOLID, # Clear border
+                        fieldbackground=self.input_bg_color,
+                        foreground=self.text_color,
+                        borderwidth=1)
+        style.map("TEntry",
+                  bordercolor=[('focus', self.primary_color), ('!focus', '#CCCCCC')],
+                  borderwidth=[('focus', 2), ('!focus', 1)])
+
+        # 为排行榜对话框添加特定样式
+        style.configure("Leaderboard.TLabel",
+                        background="#F0F4C3",  # 淡黄色背景
+                        foreground="#33691E",  # 深绿色文字
+                        font=("Segoe UI", 14, "bold"),
+                        padding=10)
+
+    def _create_main_layout(self):
+        # Background Canvas (full window)
+        self.background_canvas = tk.Canvas(self.window, highlightthickness=0)
+        if self.images.get("background"):
+            self.background_canvas.create_image(0, 0, image=self.images["background"], anchor='nw')
         else:
-            self.feedback_label.config(text=f"错误！正确答案是: {self.current_answer}", foreground="red")
-            self._play_wrong_animation()
+            self.background_canvas.config(bg=self.bg_color) # Fallback color
+        self.background_canvas.place(x=0, y=0, relwidth=1, relheight=1)
 
-    def _play_correct_animation(self):
-        font_size = 28
+        # Main content frame - slightly offset from edges for a "floating" feel
+        self.main_frame = ttk.Frame(self.window, style="TFrame", padding=20)
+        # self.main_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER, width=700, height=550)
+        # Using pack to center the main content area, allowing background to show around it
+        self.main_frame.pack(expand=True, fill=tk.NONE, pady=(20,0)) # pady to push it down a bit from top
 
-        def animate(i):
-            if i < 5:
-                self.question_label.config(font=("Arial", font_size + i * 2))
-                self.window.after(50, animate, i + 1)
+    def _create_header(self):
+        header_frame = ttk.Frame(self.main_frame, style="TFrame")
+        header_frame.pack(pady=(10, 20), fill=tk.X)
+
+        title_label = ttk.Label(header_frame, text="小学生速算乐园 🎉", style="Header.TLabel")
+        title_label.pack()
+
+        # Score and Lives display
+        info_frame = ttk.Frame(header_frame, style="TFrame")
+        info_frame.pack(pady=(5,0), fill=tk.X)
+
+        self.score_label = ttk.Label(info_frame, text=f"分数: {self.score}", font=("Segoe UI", 14))
+        self.score_label.pack(side=tk.LEFT, padx=20)
+
+        self.lives_label = ttk.Label(info_frame, text=f"生命: {self.lives * '❤️'}", font=("Segoe UI", 14), foreground=self.error_color)
+        self.lives_label.pack(side=tk.RIGHT, padx=20)
+
+    def _create_question_area(self):
+        question_frame = ttk.Frame(self.main_frame, style="TFrame")
+        question_frame.pack(pady=20)
+
+        self.question_label = ttk.Label(question_frame, text="点击开始按钮吧！", style="Question.TLabel")
+        self.question_label.pack()
+        # Store original properties for animations
+        self.question_label_orig_fg = self.question_label.cget("foreground")
+
+    def _create_input_area(self):
+        input_controls_frame = ttk.Frame(self.main_frame, style="TFrame")
+        input_controls_frame.pack(pady=10) # Reduced pady to make space for difficulty
+
+        # Difficulty Selection
+        difficulty_frame = ttk.Frame(input_controls_frame, style="TFrame")
+        difficulty_frame.pack(pady=(0, 10)) # Space below difficulty selection
+
+        ttk.Label(difficulty_frame, text="选择难度:", style="TLabel").pack(side=tk.LEFT, padx=(0, 5))
+        difficulty_options = ["简单", "中等", "困难"]
+        self.difficulty_combobox = ttk.Combobox(
+            difficulty_frame,
+            textvariable=self.selected_difficulty,
+            values=difficulty_options,
+            state="readonly", # Prevent manual text input
+            width=8,
+            font=("Segoe UI", 12)
+        )
+        self.difficulty_combobox.pack(side=tk.LEFT)
+        self.difficulty_combobox.bind("<<ComboboxSelected>>", self._on_difficulty_change)
+
+        # Entry field
+        self.answer_entry = ttk.Entry(input_controls_frame, width=10, style="TEntry", justify=tk.CENTER)
+        self.answer_entry.pack(pady=(0, 15)) # Space below entry
+        self.answer_entry.bind("<Return>", lambda event: self._check_answer()) # Submit on Enter
+
+        # Buttons Frame (for side-by-side layout)
+        buttons_frame = ttk.Frame(input_controls_frame, style="TFrame")
+        buttons_frame.pack(pady=(10,0)) # Add some padding above buttons
+
+        self.start_btn = ttk.Button(
+            buttons_frame,
+            text=" 开始练习",
+            image=self.images.get("start_button"),
+            compound=tk.LEFT,
+            command=self._start_practice,
+            style="Primary.TButton"
+        )
+        self.start_btn.pack(side=tk.LEFT, padx=10)
+
+        self.submit_btn = ttk.Button(
+            buttons_frame,
+            text=" 提交答案",
+            image=self.images.get("submit_button"),
+            compound=tk.LEFT,
+            command=self._check_answer,
+            style="Accent.TButton"
+        )
+        self.submit_btn.pack(side=tk.LEFT, padx=10)
+        self.submit_btn.config(state=tk.DISABLED)
+
+        self.leaderboard_btn = ttk.Button(
+            buttons_frame,
+            text="排行榜",
+            command=self._show_leaderboard_ui,
+            style="App.TButton" # Using a general app button style
+        )
+        self.leaderboard_btn.pack(side=tk.LEFT, padx=10)
+
+    def _create_feedback_area(self):
+        self.feedback_frame = ttk.Frame(self.main_frame, style="TFrame")
+        self.feedback_frame.pack(pady=20, fill=tk.X) # Fill horizontally to center text
+
+        self.feedback_icon_label = ttk.Label(self.feedback_frame, style="TLabel") # For correct/incorrect icon
+        self.feedback_icon_label.pack(pady=(0,5))
+
+        self.feedback_text_label = ttk.Label(self.feedback_frame, text="", style="Feedback.TLabel", anchor=tk.CENTER)
+        self.feedback_text_label.pack(fill=tk.X)
+
+    def _on_difficulty_change(self, event=None):
+        print(f"[调试信息] 难度已更改为: {self.selected_difficulty.get()}")
+
+    def _update_score_lives_labels(self):
+        self.score_label.config(text=f"分数: {self.score}")
+        self.lives_label.config(text=f"生命: {self.lives * '❤️'}")
+
+    def _game_over(self):
+        self.question_active = False
+        messagebox.showinfo("游戏结束", f"游戏结束！\n你的最终得分是: {self.score}")
+        self._add_score_to_leaderboard(self.score)
+
+        # Reset UI for new game
+        self.start_btn.config(state=tk.NORMAL)
+        self.submit_btn.config(state=tk.DISABLED)
+        self.difficulty_combobox.config(state="readonly")
+        self.question_label.config(text="点击开始按钮吧！")
+        self.answer_entry.delete(0, tk.END)
+        self.show_initial_message() # Clear feedback
+
+        self._show_leaderboard_ui() # Show leaderboard after game over
+
+    def _load_leaderboard(self):
+        try:
+            if os.path.exists(self.leaderboard_file):
+                with open(self.leaderboard_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and all(isinstance(x, (int, float)) for x in data):
+                        return data
+                    else:
+                        print("[警告] 排行榜文件格式不正确，将使用空排行榜。")
+                        return []
             else:
-                self.question_label.config(font=("Arial", font_size))
+                os.makedirs(os.path.dirname(self.leaderboard_file), exist_ok=True)
+                return []
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"[错误] 加载排行榜失败: {e}")
+            return []
 
-        animate(0)
+    def _save_leaderboard(self):
+        try:
+            os.makedirs(os.path.dirname(self.leaderboard_file), exist_ok=True)
+            with open(self.leaderboard_file, 'w', encoding='utf-8') as f:
+                json.dump(self.leaderboard_data, f, indent=4)
+        except IOError as e:
+            print(f"[错误] 保存排行榜失败: {e}")
 
-    def _play_wrong_animation(self):
-        original_x = self.answer_entry.winfo_x()
+    def _add_score_to_leaderboard(self, new_score):
+        if not isinstance(new_score, (int, float)):
+            print(f"[警告] 无效的分数类型: {new_score}")
+            return
 
-        def animate(i):
-            if i < 5:
-                offset = 5 if i % 2 == 0 else -5
-                self.answer_entry.place_configure(x=original_x + offset)
-                self.window.after(50, animate, i + 1)
-            else:
-                self.answer_entry.place_configure(x=original_x)
+        self.leaderboard_data.append(new_score)
+        self.leaderboard_data.sort(reverse=True)
+        self.leaderboard_data = self.leaderboard_data[:3]
+        self._save_leaderboard()
 
-        animate(0)
+    def _show_leaderboard_ui(self):
+        if not self.leaderboard_data:
+            messagebox.showinfo("排行榜", "排行榜为空！")
+            return
+
+        top_scores_str = "\n".join([f"第 {i+1} 名: {s}分" for i, s in enumerate(self.leaderboard_data)])
+        messagebox.showinfo("排行榜 - 前三名", f"最高分记录:\n\n{top_scores_str}")
+
+    def _clear_feedback(self):
+        if self.question_active:
+            self.feedback_text_label.config(text="")
+            self.feedback_icon_label.config(image='')
 
     def _start_practice(self):
+        self.score = 0
+        self.lives = 3
+        self._update_score_lives_labels()
+        self.question_active = True
+        self._clear_feedback()
         self._generate_new_question()
+        self.answer_entry.delete(0, tk.END)
         self.answer_entry.focus()
         self.start_btn.config(state=tk.DISABLED)
         self.submit_btn.config(state=tk.NORMAL)
 
     def _generate_new_question(self):
-        operators = ['+', '-', '*', '/']
+        difficulty = self.selected_difficulty.get()
+
+        if difficulty == "简单":
+            operators = ['+', '-']
+        elif difficulty == "中等":
+            operators = ['+', '-', '*']
+        else: # 困难
+            operators = ['+', '-', '*', '/']
+
         selected_operator = random.choice(operators)
-        question_data = self.controller.generate_question(selected_operator)
+        question_data = self.controller.generate_question(selected_operator, difficulty)
         self.question_label.config(text=question_data['question'])
         self.current_answer = question_data['answer']
 
     def _check_answer(self):
-        user_input = self.answer_entry.get()
+        if not self.question_active:
+            return
+
+        user_input = self.answer_entry.get().strip()
         if not user_input:
+            self.feedback_text_label.config(text="请输入答案哦！", style="Error.Feedback.TLabel")
+            self.feedback_icon_label.config(image='')
             return
 
         try:
@@ -128,149 +376,162 @@ class MathTrainerUI:
             is_correct = self.controller.check_answer(user_answer, self.current_answer)
 
             if is_correct:
-                self.show_feedback(True)
-                self._generate_new_question()
+                self.score += 10
+                self._update_score_lives_labels()
+                self.show_feedback(is_correct)
+                self.window.after(1500, lambda: [
+                    self.answer_entry.delete(0, tk.END),
+                    self._generate_new_question()
+                ])
             else:
-                self.show_feedback(False)
-
-            self.answer_entry.delete(0, tk.END)
-            self.answer_entry.focus()
+                self.lives -= 1
+                self._update_score_lives_labels()
+                self.show_feedback(is_correct)
+                if self.lives <= 0:
+                    self._game_over()
+                else:
+                    self.answer_entry.delete(0, tk.END)
+                    self.answer_entry.focus()
 
         except ValueError:
-            self.feedback_label.config(text="请输入有效数字！", foreground="red")
+            self.feedback_text_label.config(text="请输入有效的数字！", style="Error.Feedback.TLabel")
+            self.feedback_icon_label.config(image=self.images.get("incorrect_icon"))
             self.answer_entry.delete(0, tk.END)
             self.answer_entry.focus()
+            self.window.after(3000, self._clear_feedback)
 
-    def _setup_styles(self):
-        style = ttk.Style()
-        style.theme_use('clam')
+    def show_initial_message(self):
+        self.feedback_icon_label.config(image='') # Clear icon
+        self.feedback_text_label.config(text="准备好了吗？点击开始按钮进行速算练习！", style="Feedback.TLabel")
 
-        # 通用样式设置
-        style.configure(".", background=self.bg_color)
-        style.configure("TFrame", background=self.bg_color)
-        style.configure("TLabel", background=self.bg_color, font=("Arial", 12))
-        style.configure("TButton", background=self.bg_color)
+    def show_feedback(self, is_correct):
+        icon = None
+        if is_correct:
+            self.feedback_text_label.config(text="太棒了，回答正确！", style="Correct.Feedback.TLabel")
+            icon = self.images.get("correct_icon")
+            self._play_correct_animation()
+        else:
+            self.feedback_text_label.config(text=f"别灰心，正确答案是: {self.current_answer}", style="Error.Feedback.TLabel")
+            icon = self.images.get("incorrect_icon")
+            self._play_wrong_animation()
 
-        # 输入框样式
-        style.configure("TEntry",
-                       font=("Arial", 18),
-                       padding=10,
-                       background='white',
-                       fieldbackground='white',
-                       foreground='black')
+        if icon:
+            self.feedback_icon_label.config(image=icon)
+        else:
+            self.feedback_icon_label.config(image='')
+            
+        self.window.update()
+        self.window.after(3000, self._clear_feedback)
 
-        # 主按钮样式
-        style.configure("Primary.TButton",
-                       foreground="white",
-                       background=self.primary_color,
-                       font=("Arial", 14, "bold"),
-                       borderwidth=0)
-        style.map("Primary.TButton",
-                 background=[("active", "#357ABD"), ("disabled", "#CCCCCC")])
+    def _play_correct_animation(self):
+        original_color = self.question_label_orig_fg
+        self.question_label.config(foreground=self.correct_color)
+        self.window.after(150, lambda: self.question_label.config(font=("Segoe UI", 40, "bold")))
+        self.window.after(300, lambda: self.question_label.config(font=("Segoe UI", 38, "bold")))
+        self.window.after(450, lambda: self.question_label.config(foreground=original_color))
 
-        # 强调按钮样式
-        style.configure("Accent.TButton",
-                       foreground="white",
-                       background=self.accent_color,
-                       font=("Arial", 14, "bold"),
-                       borderwidth=0)
-        style.map("Accent.TButton",
-                 background=[("active", "#E55959"), ("disabled", "#CCCCCC")])
-
-        # 标题样式
-        style.configure("Title.TLabel",
-                       font=("Arial", 24, "bold"),
-                       foreground=self.primary_color)
-
-        # 题目样式
-        style.configure("Question.TLabel",
-                       font=("Arial", 28),
-                       foreground="#333333")
-
-        # 反馈样式
-        style.configure("Feedback.TLabel",
-                       font=("Arial", 18),
-                       anchor=tk.CENTER)
-
-    def _setup_ui(self):
-        # 主容器使用窗口背景色
-        main_container = tk.Frame(self.window, bg=self.bg_color)
-        main_container.pack(fill=tk.BOTH, expand=True)
-
-        # 内容容器
-        content_frame = tk.Frame(main_container, bg=self.bg_color)
-        content_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER, width=700, height=500)
-
-        # 标题
-        title_label = ttk.Label(
-            content_frame,
-            text="小学生速算练习",
-            style="Title.TLabel"
-        )
-        title_label.place(relx=0.5, rely=0.1, anchor=tk.CENTER)
-
-        # 题目显示
-        self.question_label = ttk.Label(
-            content_frame,
-            text="点击开始练习",
-            style="Question.TLabel"
-        )
-        self.question_label.place(relx=0.5, rely=0.3, anchor=tk.CENTER)
-
-        # 答案输入区
-        input_frame = ttk.Frame(content_frame)
-        input_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-
-        self.answer_entry = ttk.Entry(
-            input_frame,
-            style="TEntry",
-            width=15
-        )
-        self.answer_entry.pack(pady=(0, 10))
-
-        # 按钮区
-        button_frame = ttk.Frame(content_frame)
-        button_frame.place(relx=0.5, rely=0.7, anchor=tk.CENTER)
-
+    def _play_wrong_animation(self):
         try:
-            from PIL import Image, ImageTk
-            self.start_icon = ImageTk.PhotoImage(
-                Image.open(os.path.join(os.path.dirname(__file__), 'images', 'btn_start.png')).resize((32, 32), Image.Resampling.LANCZOS))
-            self.submit_icon = ImageTk.PhotoImage(
-                Image.open(os.path.join(os.path.dirname(__file__), 'images', 'btn_submit.png')).resize((32, 32), Image.Resampling.LANCZOS))
+            has_focus = self.answer_entry == self.window.focus_get()
+            entry_x = self.answer_entry.winfo_x()
+            entry_y = self.answer_entry.winfo_y()
+            entry_width = self.answer_entry.winfo_width()
+            entry_height = self.answer_entry.winfo_height()
+
+            self.answer_entry.pack_forget()
+            self.answer_entry.place(x=entry_x, y=entry_y, width=entry_width, height=entry_height)
+
+            def animate_shake(count):
+                if count > 0:
+                    offset = 5 if count % 2 == 0 else -5
+                    self.answer_entry.place(x=entry_x + offset, y=entry_y)
+                    self.window.after(50, lambda: animate_shake(count - 1))
+                else:
+                    self.answer_entry.place_forget()
+                    self.answer_entry.pack(pady=(0,15))
+                    if has_focus:
+                        self.answer_entry.focus_set()
+
+            animate_shake(6)
+
         except Exception as e:
-            print(f"按钮图标加载失败: {str(e)}")
-            self.start_icon = self.submit_icon = None
-
-        self.start_btn = ttk.Button(
-            button_frame,
-            text=" 开始练习",
-            image=self.start_icon,
-            compound=tk.LEFT,
-            command=self._start_practice,
-            style="Primary.TButton"
-        )
-        self.start_btn.pack(side=tk.LEFT, padx=5)
-
-        self.submit_btn = ttk.Button(
-            button_frame,
-            text=" 提交答案",
-            image=self.submit_icon,
-            compound=tk.LEFT,
-            command=self._check_answer,
-            style="Accent.TButton"
-        )
-        self.submit_btn.pack(side=tk.LEFT, padx=5)
-        self.submit_btn.config(state=tk.DISABLED)
-
-        # 反馈标签
-        self.feedback_label = ttk.Label(
-            content_frame,
-            text="",
-            style="Feedback.TLabel"
-        )
-        self.feedback_label.place(relx=0.5, rely=0.85, anchor=tk.CENTER)
+            print(f"[错误] 动画效果出错: {e}")
+            self.answer_entry.place_forget()
+            self.answer_entry.pack(pady=(0,15))
+            self.answer_entry.focus_set()
 
     def run(self):
         self.window.mainloop()
+
+# Dummy Controller for testing purposes
+class DummyController:
+    def generate_question(self, operator, difficulty="中等"): # Add difficulty parameter
+        num1, num2 = self._get_numbers_for_difficulty(operator, difficulty)
+
+        if operator == '/': # Basic division, ensure num1 is multiple of num2
+            if num2 == 0: num2 = 1
+            num1 = num2 * random.randint(1, difficulty_settings[difficulty]['div_multiplier_max'])
+        elif operator == '-': # Ensure positive result for simplicity
+            if num1 < num2:
+                num1, num2 = num2, num1
+
+        question = f"{num1} {operator} {num2} = ?"
+        answer = eval(str(num1) + operator + str(num2))
+        if operator == '/':
+            answer = int(answer)
+        return {'question': question, 'answer': answer}
+
+    def _get_numbers_for_difficulty(self, operator, difficulty):
+        config = difficulty_settings.get(difficulty, difficulty_settings["中等"])
+
+        if operator == '*':
+            num1 = random.randint(config['mult_min'], config['mult_max'])
+            num2 = random.randint(config['mult_min'], config['mult_max'])
+        elif operator == '/':
+            num1 = random.randint(config['add_sub_min'], config['add_sub_max'])
+            num2 = random.randint(config['div_divisor_min'], config['div_divisor_max'])
+            if num2 == 0: num2 = 1
+        else:
+            num1 = random.randint(config['add_sub_min'], config['add_sub_max'])
+            num2 = random.randint(config['add_sub_min'], config['add_sub_max'])
+        return num1, num2
+
+    def check_answer(self, user_answer, correct_answer):
+        try:
+            return float(user_answer) == float(correct_answer)
+        except ValueError:
+            return False
+
+# Difficulty settings
+difficulty_settings = {
+    "简单": {
+        "add_sub_min": 1, "add_sub_max": 10,
+        "mult_min": 1, "mult_max": 5,
+        "div_divisor_min": 1, "div_divisor_max": 5, "div_multiplier_max": 5,
+        "operators": ['+', '-']
+    },
+    "中等": {
+        "add_sub_min": 1, "add_sub_max": 50,
+        "mult_min": 1, "mult_max": 12,
+        "div_divisor_min": 1, "div_divisor_max": 10, "div_multiplier_max": 10,
+        "operators": ['+', '-', '*']
+    },
+    "困难": {
+        "add_sub_min": 1, "add_sub_max": 100,
+        "mult_min": 1, "mult_max": 20,
+        "div_divisor_min": 2, "div_divisor_max": 12, "div_multiplier_max": 12,
+        "operators": ['+', '-', '*', '/']
+    }
+}
+
+if __name__ == '__main__':
+    if not PIL_AVAILABLE:
+        print("---------------------------------------------------------")
+        print("Pillow library is not installed. Images will not be loaded.")
+        print("Please install it by running: pip install Pillow")
+        print("---------------------------------------------------------")
+
+    controller = DummyController()
+    app_ui = EnhancedMathTrainerUI(controller)
+    app_ui.run()
 
